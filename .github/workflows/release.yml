@@ -1,14 +1,12 @@
-name: Build and Release
+name: Build
 
 on:
   workflow_dispatch:
-  release:
-    types: [published]
+
+permissions: {}
 
 jobs:
   build:
-    permissions:
-      contents: write
     strategy:
       matrix:
         include:
@@ -25,6 +23,9 @@ jobs:
             target: armv7-unknown-linux-gnueabihf
             asset_name: linux-armv7
           - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            asset_name: linux-armv7-musl
+          - os: ubuntu-latest
             target: riscv64gc-unknown-linux-gnu
             asset_name: linux-riscv64
           - os: ubuntu-latest
@@ -39,6 +40,12 @@ jobs:
           - os: ubuntu-latest
             target: mipsel-unknown-linux-gnu
             asset_name: linux-mipsle
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            asset_name: linux-ish-arm64
+          - os: ubuntu-latest
+            target: i686-unknown-linux-musl
+            asset_name: linux-i686-musl
           - os: macos-latest
             target: aarch64-apple-darwin
             asset_name: darwin-arm64
@@ -60,32 +67,36 @@ jobs:
       - name: Checkout slipstream-rust repository
         uses: actions/checkout@v4
         with:
-          repository: Mygod/slipstream-rust
+          repository: Fox-Fig/slipstream-rust-plus
           ref: main
           submodules: recursive
           path: slipstream-rust
 
       - name: Set up QEMU
-        if: runner.os == 'Linux' && contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: runner.os == 'Linux' && contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        if: runner.os == 'Linux' && contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: runner.os == 'Linux' && contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)
         uses: docker/setup-buildx-action@v3
         with:
           platforms: linux/arm64,linux/arm/v7,linux/riscv64,linux/mips64,linux/mips64le,linux/mips,linux/mipsle
 
       - name: Install Rust
-        if: runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: (runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)) && matrix.use_cross != true
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
       - name: Install cross toolchain
-        if: runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: (runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)) && matrix.use_cross != true
         uses: taiki-e/setup-cross-toolchain-action@v1
         with:
           target: ${{ env.TARGET }}
+
+      - name: Install cross
+        if: matrix.use_cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Get slipstream-rust commit hash
         id: get_commit
@@ -96,7 +107,7 @@ jobs:
           echo "short_commit=$(git rev-parse --short=7 HEAD)" >> $GITHUB_OUTPUT
 
       - name: Cache Rust dependencies
-        if: runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-linux-android,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)
         uses: actions/cache@v4
         with:
           path: |
@@ -111,7 +122,7 @@ jobs:
             ${{ runner.os }}-rust-
 
       - name: Install build dependencies (Linux)
-        if: runner.os == 'Linux' && !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: runner.os == 'Linux' && !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake pkg-config gcc g++ perl
@@ -205,7 +216,7 @@ jobs:
           fi
 
       - name: Build with Docker buildx (Linux alternate architectures)
-        if: runner.os == 'Linux' && contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: runner.os == 'Linux' && contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)
         run: |
           set -e
           TARGET="${{ matrix.target }}"
@@ -214,11 +225,14 @@ jobs:
           case "$TARGET" in
             aarch64-unknown-linux-gnu)       DOCKER_PLATFORM=linux/arm64    DOCKERFILE=Dockerfile.arm64    ;;
             armv7-unknown-linux-gnueabihf)   DOCKER_PLATFORM=linux/arm/v7   DOCKERFILE=Dockerfile.armv7    ;;
+            armv7-unknown-linux-musleabihf)  DOCKER_PLATFORM=linux/amd64    DOCKERFILE=Dockerfile.armv7-musl ;;
             riscv64gc-unknown-linux-gnu)     DOCKER_PLATFORM=linux/riscv64  DOCKERFILE=Dockerfile.riscv64  ;;
             mips64-unknown-linux-gnuabi64)   DOCKER_PLATFORM=linux/amd64    DOCKERFILE=Dockerfile.mips64   ;;
             mips64el-unknown-linux-gnuabi64) DOCKER_PLATFORM=linux/amd64    DOCKERFILE=Dockerfile.mips64le ;;
             mips-unknown-linux-gnu)          DOCKER_PLATFORM=linux/amd64    DOCKERFILE=Dockerfile.mips     ;;
             mipsel-unknown-linux-gnu)        DOCKER_PLATFORM=linux/amd64    DOCKERFILE=Dockerfile.mipsle   ;;
+            aarch64-unknown-linux-musl)      DOCKER_PLATFORM=linux/amd64    DOCKERFILE=Dockerfile.aarch64-musl ;;
+            i686-unknown-linux-musl)         DOCKER_PLATFORM=linux/amd64    DOCKERFILE=Dockerfile.i686-musl    ;;
             *) echo "Unsupported Docker target: $TARGET"; exit 1 ;;
           esac
           TAG="slipstream-build:${TARGET%%-*}"
@@ -240,8 +254,9 @@ jobs:
           cp docker-build-output/slipstream-server "slipstream-rust/target/$TARGET/release/"
           ls -lh "slipstream-rust/target/$TARGET/release/"
 
+
       - name: Build picoquic (Linux)
-        if: runner.os == 'Linux' && !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: runner.os == 'Linux' && !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)
         working-directory: slipstream-rust
         run: |
           bash scripts/build_picoquic.sh
@@ -491,7 +506,7 @@ jobs:
           fi
 
       - name: Build slipstream binaries
-        if: runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu', matrix.target)
+        if: runner.os != 'Linux' || !contains('aarch64-unknown-linux-gnu,armv7-unknown-linux-gnueabihf,armv7-unknown-linux-musleabihf,riscv64gc-unknown-linux-gnu,mips64-unknown-linux-gnuabi64,mips64el-unknown-linux-gnuabi64,mips-unknown-linux-gnu,mipsel-unknown-linux-gnu,aarch64-unknown-linux-musl,i686-unknown-linux-musl', matrix.target)
         working-directory: slipstream-rust
         shell: bash
         env:
@@ -524,7 +539,9 @@ jobs:
 
           # Use vendored OpenSSL for Windows; Linux alternate arches use Docker
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            cargo build --release --target ${{ matrix.target }} -p slipstream-client -p slipstream-server --features openssl-vendored
+            cargo build --release --target ${{ matrix.target }} -p slipstream-client -p slipstream-server
+          elif [[ "${{ matrix.use_cross }}" == "true" ]]; then
+            cross build --release --target ${{ matrix.target }} -p slipstream-client -p slipstream-server
           else
             cargo build --release --target ${{ matrix.target }} -p slipstream-client -p slipstream-server
           fi
@@ -573,32 +590,6 @@ jobs:
           cp "$SERVER_BIN" "build_assets/slipstream-server-${{ env.ASSET_NAME }}${{ env.EXE_EXT }}"
           [ "${{ runner.os }}" != "Windows" ] && chmod +x build_assets/*
           echo "Binaries prepared successfully"
-
-      - name: Create release if needed
-        shell: bash
-        env:
-         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-         TAG="${{ steps.get_commit.outputs.short_commit }}"
-         if ! gh release view "$TAG" &>/dev/null; then
-           gh release create "$TAG" \
-             --title "Release $TAG" \
-             --notes "Release for slipstream-rust commit $TAG
-        
-         This release contains prebuilt binaries for:
-         - **Linux**: x86_64 (amd64), ARM64 (aarch64), ARMv7, RISC-V 64, MIPS64, MIPS64LE, MIPS, MIPSLE
-         - **Windows**: x86_64 (amd64)
-         - **macOS**: ARM64 (Apple Silicon), Intel x86_64"
-         fi
-
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-         repo_token: ${{ secrets.GITHUB_TOKEN }}
-         file: build_assets/slipstream-*
-         file_glob: true
-         tag: ${{ steps.get_commit.outputs.short_commit }}
-         overwrite: true
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

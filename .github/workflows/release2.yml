@@ -67,7 +67,7 @@ jobs:
       - name: Checkout slipstream-rust repository
         uses: actions/checkout@v4
         with:
-          repository: Fox-Fig/slipstream-rust-plus
+          repository: Mygod/slipstream-rust
           ref: main
           submodules: recursive
           path: slipstream-rust
